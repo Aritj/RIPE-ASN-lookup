@@ -10,4 +10,6 @@ This project includes two example .json files, which have been generated as foll
 ASN data written to fo_asn_data_20240718_231802.json
 (base) aritj@Aris-MBP Projects copy % python3 lookup.py fo 4
 ASN data written to fo_asn_data_20240718_231810.json
+(base) aritj@Aris-MBP Projects copy % python3 app.py is 4
+ASN data written to is_asn_data_20240718_232838.json
 ```
