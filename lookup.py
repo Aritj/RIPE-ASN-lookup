@@ -17,10 +17,7 @@ def separate_ip_types(ip_list: List[str]) -> Tuple[List[str], List[str]]:
 def classify_asn_neighbours(asn_neighbour_list: List[Dict[str, str]]) -> Tuple[List[str], List[str]]:
     upstream, downstream = [], []
     for neighbour in asn_neighbour_list:
-        if neighbour.get('type') == "left":
-            upstream.append(neighbour.get('asn'))
-        elif neighbour.get('type') == "right":
-            downstream.append(neighbour.get('asn'))
+        (upstream if neighbour.get('type') == 'left' else downstream).append(neighbour.get('asn'))
     return upstream, downstream
 
 def fetch_url(url: str) -> Dict:
