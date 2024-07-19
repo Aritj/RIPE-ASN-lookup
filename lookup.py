@@ -14,6 +14,15 @@ def separate_ip_types(ip_list: List[str]) -> Tuple[List[str], List[str]]:
         (ipv4_list if isinstance(ipaddress.ip_network(ip, strict=False), ipaddress.IPv4Network) else ipv6_list).append(ip)
     return ipv4_list, ipv6_list
 
+def classify_asn_neighbours(asn_neighbour_list: List[Dict[str, str]]) -> Tuple[List[str], List[str]]:
+    upstream, downstream = [], []
+    for neighbour in asn_neighbour_list:
+        if neighbour.get('type') == "left":
+            upstream.append(neighbour.get('asn'))
+        elif neighbour.get('type') == "right":
+            downstream.append(neighbour.get('asn'))
+    return upstream, downstream
+
 def fetch_url(url: str) -> Dict:
     with urllib.request.urlopen(url) as response:
         return json.loads(response.read().decode())
@@ -21,7 +30,8 @@ def fetch_url(url: str) -> Dict:
 def fetch_asn_data(asn: str) -> List[Dict]:
     urls = [
         f'https://stat.ripe.net/data/announced-prefixes/data.json?resource={asn}',
-        f'https://stat.ripe.net/data/as-overview/data.json?resource=as{asn}'
+        f'https://stat.ripe.net/data/as-overview/data.json?resource=as{asn}',
+        f'https://stat.ripe.net/data/asn-neighbours/data.json?resource={asn}'
     ]
     with ThreadPoolExecutor(max_workers=len(urls)) as pool:
         responses = list(pool.map(fetch_url, urls))
@@ -36,7 +46,7 @@ def update_not_announced_prefixes(asn_dict: Dict, ip_list: List[str], ip_version
         if asn_list:
             asn = asn_list[0]
             if asn in asn_dict:
-                asn_dict[asn]['not_announced'][f'{ip_version}_prefixes'].append(prefix)
+                asn_dict[asn]['not_announced_prefixes'][f'{ip_version}_prefixes'].append(prefix)
 
 def get_asn_dict(country_code: str) -> Dict:
     response = fetch_url(f'https://stat.ripe.net/data/country-resource-list/data.json?resource={country_code}')
@@ -48,20 +58,24 @@ def get_asn_dict(country_code: str) -> Dict:
     asn_dict = {}
     
     for asn in asn_list:
-        asn_prefix_json_response, asn_overview_json_response = fetch_asn_data(asn)
+        announced_prefix, asn_overview, asn_neighbour = fetch_asn_data(asn)
         
-        prefix_entries = asn_prefix_json_response.get('data', {}).get('prefixes', [])
-        prefixes = [entry.get('prefix') for entry in prefix_entries]
-        as_name = asn_overview_json_response.get('data', {}).get('holder', "Unknown Holder")
-        ipv4_prefixes, ipv6_prefixes = separate_ip_types(prefixes)
+        as_name = asn_overview.get('data', {}).get('holder', "Unknown Holder")
+        announced_prefixes = announced_prefix.get('data', {}).get('prefixes', [])
+        announced_prefixes = [entry.get('prefix') for entry in announced_prefixes]
+        ipv4_prefixes, ipv6_prefixes = separate_ip_types(announced_prefixes)
+        asn_neighbour_list = asn_neighbour.get('data', {}).get('neighbours', [])
+        upstream, downstream = classify_asn_neighbours(asn_neighbour_list)
 
         ipv4_list = list(set(ipv4_list) - set(ipv4_prefixes))
         ipv6_list = list(set(ipv6_list) - set(ipv6_prefixes))
 
         asn_dict[asn] = {
             'name': as_name,
-            'announced': {'ipv4_prefixes': ipv4_prefixes, 'ipv6_prefixes': ipv6_prefixes},
-            'not_announced': {'ipv4_prefixes': [], 'ipv6_prefixes': []}
+            'upstream_bgp_asn': upstream,
+            'downstream_bgp_asn': downstream,
+            'announced_prefixes': {'ipv4_prefixes': ipv4_prefixes, 'ipv6_prefixes': ipv6_prefixes},
+            'not_announced_prefixes': {'ipv4_prefixes': [], 'ipv6_prefixes': []}
         }
     
     update_not_announced_prefixes(asn_dict, ipv4_list, 'ipv4')
