@@ -3,10 +3,10 @@ import os
 import sys
 import json
 import ipaddress
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Tuple, Dict
 from datetime import datetime
-import urllib.request
 
 def separate_ip_types(ip_list: List[str]) -> Tuple[List[str], List[str]]:
     ipv4_list, ipv6_list = [], []
@@ -23,7 +23,7 @@ def fetch_asn_data(asn: str) -> List[Dict]:
         f'https://stat.ripe.net/data/announced-prefixes/data.json?resource={asn}',
         f'https://stat.ripe.net/data/as-overview/data.json?resource=as{asn}'
     ]
-    with ThreadPoolExecutor(max_workers=2) as pool:
+    with ThreadPoolExecutor(max_workers=len(urls)) as pool:
         responses = list(pool.map(fetch_url, urls))
     return responses
 
