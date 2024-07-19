@@ -3,10 +3,10 @@ import os
 import sys
 import json
 import ipaddress
-from requests import get, Response
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Tuple, Dict
 from datetime import datetime
+import urllib.request
 
 def separate_ip_types(ip_list: List[str]) -> Tuple[List[str], List[str]]:
     ipv4_list, ipv6_list = [], []
@@ -14,20 +14,24 @@ def separate_ip_types(ip_list: List[str]) -> Tuple[List[str], List[str]]:
         (ipv4_list if isinstance(ipaddress.ip_network(ip, strict=False), ipaddress.IPv4Network) else ipv6_list).append(ip)
     return ipv4_list, ipv6_list
 
+def fetch_url(url: str) -> Dict:
+    with urllib.request.urlopen(url) as response:
+        return json.loads(response.read().decode())
+
 def fetch_asn_data(asn: str) -> List[Dict]:
     urls = [
         f'https://stat.ripe.net/data/announced-prefixes/data.json?resource={asn}',
         f'https://stat.ripe.net/data/as-overview/data.json?resource=as{asn}'
     ]
     with ThreadPoolExecutor(max_workers=2) as pool:
-        responses = list(pool.map(get, urls))
-    return [response.json() for response in responses]
+        responses = list(pool.map(fetch_url, urls))
+    return responses
 
 def update_not_announced_prefixes(asn_dict: Dict, ip_list: List[str], ip_version: str) -> None:
     for prefix in ip_list:
         subnet = ipaddress.ip_network(prefix)
-        response = get(f'https://stat.ripe.net/data/network-info/data.json?resource={subnet[0]}')
-        asn_list = response.json().get('data', {}).get('asns', [])
+        response = fetch_url(f'https://stat.ripe.net/data/network-info/data.json?resource={subnet[0]}')
+        asn_list = response.get('data', {}).get('asns', [])
 
         if asn_list:
             asn = asn_list[0]
@@ -35,8 +39,8 @@ def update_not_announced_prefixes(asn_dict: Dict, ip_list: List[str], ip_version
                 asn_dict[asn]['not_announced'][f'{ip_version}_prefixes'].append(prefix)
 
 def get_asn_dict(country_code: str) -> Dict:
-    response = get(f'https://stat.ripe.net/data/country-resource-list/data.json?resource={country_code}')
-    json_response = response.json()
+    response = fetch_url(f'https://stat.ripe.net/data/country-resource-list/data.json?resource={country_code}')
+    json_response = response
     asn_list = json_response.get('data', {}).get('resources', {}).get('asn', [])
     ipv4_list = json_response.get('data', {}).get('resources', {}).get('ipv4', [])
     ipv6_list = json_response.get('data', {}).get('resources', {}).get('ipv6', [])
@@ -84,5 +88,5 @@ if __name__ == "__main__":
         print(f'Example:\tpython3 {script_name} fo 4')
     else:
         country_code = sys.argv[1]
-        num_indent = int(sys.argv[2]) if len(sys.argv) > 2 else None
+        num_indent = int(sys.argv[2]) if len(sys.argv) > 2 else 4
         main(country_code, num_indent)
