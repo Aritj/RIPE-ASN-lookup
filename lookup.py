@@ -9,8 +9,9 @@ from typing import List, Tuple, Dict
 from datetime import datetime
 
 def separate_ip_types(ip_list: List[str]) -> Tuple[List[str], List[str]]:
-    ipv4_list = [ip for ip in ip_list if isinstance(ipaddress.ip_network(ip, strict=False), ipaddress.IPv4Network)]
-    ipv6_list = [ip for ip in ip_list if isinstance(ipaddress.ip_network(ip, strict=False), ipaddress.IPv6Network)]
+    ipv4_list, ipv6_list = [], []
+    for ip in ip_list:
+        (ipv4_list if isinstance(ipaddress.ip_network(ip, strict=False), ipaddress.IPv4Network) else ipv6_list).append(ip)
     return ipv4_list, ipv6_list
 
 def fetch_asn_data(asn: str) -> List[Dict]:
