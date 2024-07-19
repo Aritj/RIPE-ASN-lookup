@@ -4,7 +4,7 @@ import sys
 import json
 import ipaddress
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Tuple, Dict
 from datetime import datetime
 
@@ -45,6 +45,26 @@ def update_not_announced_prefixes(asn_dict: Dict, ip_list: List[str], ip_version
             if asn in asn_dict:
                 asn_dict[asn]['not_announced_prefixes'][f'{ip_version}_prefixes'].append(prefix)
 
+def process_asn(asn: str) -> Tuple[str, Dict, List[str], List[str]]:
+    announced_prefix, asn_overview, asn_neighbour = fetch_asn_data(asn)
+    
+    as_name = asn_overview.get('data', {}).get('holder', "Unknown Holder")
+    announced_prefixes = announced_prefix.get('data', {}).get('prefixes', [])
+    announced_prefixes = [entry.get('prefix') for entry in announced_prefixes]
+    ipv4_prefixes, ipv6_prefixes = separate_ip_types(announced_prefixes)
+    asn_neighbour_list = asn_neighbour.get('data', {}).get('neighbours', [])
+    upstream, downstream = classify_asn_neighbours(asn_neighbour_list)
+
+    asn_data = {
+        'name': as_name,
+        'upstream_bgp_asn': upstream,
+        'downstream_bgp_asn': downstream,
+        'announced_prefixes': {'ipv4_prefixes': ipv4_prefixes, 'ipv6_prefixes': ipv6_prefixes},
+        'not_announced_prefixes': {'ipv4_prefixes': [], 'ipv6_prefixes': []}
+    }
+
+    return asn, asn_data, ipv4_prefixes, ipv6_prefixes
+
 def get_asn_dict(country_code: str) -> Dict:
     response = fetch_url(f'https://stat.ripe.net/data/country-resource-list/data.json?resource={country_code}')
     json_response = response
@@ -53,30 +73,19 @@ def get_asn_dict(country_code: str) -> Dict:
     ipv6_list = json_response.get('data', {}).get('resources', {}).get('ipv6', [])
     
     asn_dict = {}
+    all_ipv4_prefixes = set(ipv4_list)
+    all_ipv6_prefixes = set(ipv6_list)
     
-    for asn in asn_list:
-        announced_prefix, asn_overview, asn_neighbour = fetch_asn_data(asn)
-        
-        as_name = asn_overview.get('data', {}).get('holder', "Unknown Holder")
-        announced_prefixes = announced_prefix.get('data', {}).get('prefixes', [])
-        announced_prefixes = [entry.get('prefix') for entry in announced_prefixes]
-        ipv4_prefixes, ipv6_prefixes = separate_ip_types(announced_prefixes)
-        asn_neighbour_list = asn_neighbour.get('data', {}).get('neighbours', [])
-        upstream, downstream = classify_asn_neighbours(asn_neighbour_list)
-
-        ipv4_list = list(set(ipv4_list) - set(ipv4_prefixes))
-        ipv6_list = list(set(ipv6_list) - set(ipv6_prefixes))
-
-        asn_dict[asn] = {
-            'name': as_name,
-            'upstream_bgp_asn': upstream,
-            'downstream_bgp_asn': downstream,
-            'announced_prefixes': {'ipv4_prefixes': ipv4_prefixes, 'ipv6_prefixes': ipv6_prefixes},
-            'not_announced_prefixes': {'ipv4_prefixes': [], 'ipv6_prefixes': []}
-        }
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        future_to_asn = {executor.submit(process_asn, asn): asn for asn in asn_list}
+        for future in as_completed(future_to_asn):
+            asn, asn_data, ipv4_prefixes, ipv6_prefixes = future.result()
+            asn_dict[asn] = asn_data
+            all_ipv4_prefixes -= set(ipv4_prefixes)
+            all_ipv6_prefixes -= set(ipv6_prefixes)
     
-    update_not_announced_prefixes(asn_dict, ipv4_list, 'ipv4')
-    update_not_announced_prefixes(asn_dict, ipv6_list, 'ipv6')
+    update_not_announced_prefixes(asn_dict, list(all_ipv4_prefixes), 'ipv4')
+    update_not_announced_prefixes(asn_dict, list(all_ipv6_prefixes), 'ipv6')
     
     return asn_dict
 
@@ -96,7 +105,8 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         script_name = os.path.basename(__file__)
         print(f'Usage:\t\tpython3 {script_name} [country_code] [num_indent]\n')
-        print(f'Example:\tpython3 {script_name} fo 4')
+        print(f'Example:\tpython3 {script_name} fo')
+        print(f'\t\tpython3 {script_name} fo 4')
     else:
         country_code = sys.argv[1]
         num_indent = int(sys.argv[2]) if len(sys.argv) > 2 else 4
