@@ -1,10 +1,8 @@
 #!/usr/bin/env python
-import os
-import sys
 import json
+import argparse
 import ipaddress
 import urllib.request
-import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Tuple, Dict, Union
 from datetime import datetime
@@ -163,7 +161,6 @@ def process_prefix(prefix: str, asn_dict: Dict, ip_version: str) -> None:
         asn_dict (Dict): The ASN dictionary to update.
         ip_version (str): The IP version ('ipv4' or 'ipv6').
     """
-    print(f"Parsing IP: {prefix}")
     subnets = parse_ip(prefix)
 
     for subnet in subnets:
@@ -221,6 +218,25 @@ def process_asn(asn: str) -> Tuple[str, Dict, set, set]:
 
     return asn, asn_data, set(ipv4_prefixes), set(ipv6_prefixes)
 
+def update_announced_prefixes(asn_dict: Dict, asn_list: List, ipv4_set: set, ipv6_set: set, thread_count: int):
+    """
+    Updates the ASN dictionary with announced prefixes using multi-threading.
+
+    Args:
+        asn_dict (Dict): The ASN dictionary to update.
+        asn_list (List): List of ASNs to process.
+        ipv4_set (set): Set of IPv4 prefixes.
+        ipv6_set (set): Set of IPv6 prefixes.
+        thread_count (int): The number of threads to use for concurrent processing.
+    """
+    with ThreadPoolExecutor(max_workers=thread_count) as executor:
+        future_to_asn = {executor.submit(process_asn, asn): asn for asn in asn_list}
+        for future in as_completed(future_to_asn):
+            asn, asn_data, ipv4_prefixes, ipv6_prefixes = future.result()
+            asn_dict[asn] = asn_data
+            ipv4_set -= ipv4_prefixes
+            ipv6_set -= ipv6_prefixes
+
 def get_asn_dict(country_code: str, thread_count: int) -> Dict:
     """
     Retrieves the ASN dictionary for a given country code.
@@ -241,14 +257,8 @@ def get_asn_dict(country_code: str, thread_count: int) -> Dict:
     all_ipv4_prefixes = set(ipv4_list)
     all_ipv6_prefixes = set(ipv6_list)
 
-    # Process ASNs concurrently
-    with ThreadPoolExecutor(max_workers=thread_count) as executor:
-        future_to_asn = {executor.submit(process_asn, asn): asn for asn in asn_list}
-        for future in as_completed(future_to_asn):
-            asn, asn_data, ipv4_prefixes, ipv6_prefixes = future.result()
-            asn_dict[asn] = asn_data
-            all_ipv4_prefixes -= ipv4_prefixes
-            all_ipv6_prefixes -= ipv6_prefixes
+    # Update ASN dictionary with announced
+    update_announced_prefixes(asn_dict, asn_list, all_ipv4_prefixes, all_ipv6_prefixes, thread_count)
 
     # Update ASN dictionary with not announced prefixes
     update_not_announced_prefixes(asn_dict, all_ipv4_prefixes, 'ipv4', thread_count)
