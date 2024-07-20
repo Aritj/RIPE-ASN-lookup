@@ -98,7 +98,7 @@ def ip_range_to_cidr(start_ip: str, end_ip: str) -> List[ipaddress.IPv4Network]:
             n <<= 1
             current_mask -= 1
 
-        while True: # TODO: This works but should be cleaned up
+        while True: # TODO: Should ideally be cleaned up
             try:
                 cidr_blocks.append(ipaddress.ip_network(f'{start}/{current_mask}', strict=False))
                 break
@@ -121,11 +121,12 @@ def parse_ip(ip_str: str) -> List[Union[ipaddress.IPv4Network, ipaddress.IPv6Net
         List[Union[ipaddress.IPv4Network, ipaddress.IPv6Network]]: List of CIDR blocks.
     """
     separator = '-'
-    
+
     if separator not in ip_str:
         return [ipaddress.ip_network(ip_str, strict=False)]
-    
+
     start_ip, end_ip = ip_str.split(separator)
+
     return ip_range_to_cidr(start_ip, end_ip)
 
 def subtract_prefixes(large_prefix: Union[ipaddress.IPv4Network, ipaddress.IPv6Network], smaller_prefixes: List[Union[ipaddress.IPv4Network, ipaddress.IPv6Network]]) -> List[Union[ipaddress.IPv4Network, ipaddress.IPv6Network]]:
@@ -143,11 +144,14 @@ def subtract_prefixes(large_prefix: Union[ipaddress.IPv4Network, ipaddress.IPv6N
 
     for smaller in smaller_prefixes:
         temp = []
+
         for prefix in remaining_prefixes:
+
             if smaller.subnet_of(prefix):
                 temp.extend(prefix.address_exclude(smaller))
             else:
                 temp.append(prefix)
+
         remaining_prefixes = temp
 
     return remaining_prefixes
@@ -288,11 +292,11 @@ def main(country_code: str, num_indent: Union[int, None], thread_count: int) -> 
         thread_count (int): The number of threads to use for concurrent processing.
     """
     asn_dict = get_asn_dict(country_code, thread_count)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().strftime("%d-%m-%Y_%H:%M:%S")
     filename = f"{country_code}_asn_data_{timestamp}.json"
 
     write_to_file(asn_dict, filename, num_indent)
-    print(f"ASN data written to {filename}")
+    print(f"ASN data written to {filename}.")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ASN Data Lookup")
