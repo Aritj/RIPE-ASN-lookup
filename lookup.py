@@ -3,9 +3,11 @@ import json
 import argparse
 import ipaddress
 import urllib.request
+
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Tuple, Dict, Union
 from datetime import datetime
+
 
 def separate_ip_types(ip_list: List[str]) -> Tuple[List[str], List[str]]:
     """
@@ -73,61 +75,20 @@ def fetch_asn_data(asn: str) -> List[Dict]:
     with ThreadPoolExecutor(max_workers=len(urls)) as pool:
         return list(pool.map(fetch_url, urls))
 
-def ip_range_to_cidr(start_ip: str, end_ip: str) -> List[ipaddress.IPv4Network]:
-    """
-    Converts an IP range to a list of CIDR blocks.
-
-    Args:
-        start_ip (str): The start IP of the range.
-        end_ip (str): The end IP of the range.
-
-    Returns:
-        List[ipaddress.IPv4Network]: List of IPv4 CIDR blocks.
-    """
-    start = ipaddress.ip_address(start_ip)
-    end = ipaddress.ip_address(end_ip)
-    min_netmask_size = 0x100 # /24
-    cidr_blocks = []
-
-    while int(start) < int(end):
-        count_24_netmasks = int((int(end) - int(start) + 1) / min_netmask_size)
-        n = 1
-        current_mask = 24
-
-        while n << 1 <= count_24_netmasks:
-            n <<= 1
-            current_mask -= 1
-
-        while True: # TODO: Should ideally be cleaned up
-            try:
-                cidr_blocks.append(ipaddress.ip_network(f'{start}/{current_mask}', strict=False))
-                break
-            except:
-                n >>= 1
-                current_mask += 1
-
-        start = ipaddress.ip_address(int(start) + n*min_netmask_size)
-
-    return cidr_blocks
-
-def parse_ip(ip_str: str) -> List[Union[ipaddress.IPv4Network, ipaddress.IPv6Network]]:
+def parse_ip(ip_str: str, separator = '-') -> List[Union[ipaddress.IPv4Network, ipaddress.IPv6Network]]:
     """
     Parses an IP string that could be in CIDR or range format.
 
     Args:
         ip_str (str): The IP string to parse.
+        separator (str): The separator used to denote an IP range. Defaults to '-'.
 
     Returns:
         List[Union[ipaddress.IPv4Network, ipaddress.IPv6Network]]: List of CIDR blocks.
     """
-    separator = '-'
-
-    if separator not in ip_str:
-        return [ipaddress.ip_network(ip_str, strict=False)]
-
-    start_ip, end_ip = ip_str.split(separator)
-
-    return ip_range_to_cidr(start_ip, end_ip)
+    if separator in ip_str:
+        return list(ipaddress.summarize_address_range(*map(ipaddress.ip_address, ip_str.split(separator))))
+    return [ipaddress.ip_network(ip_str, strict=False)]
 
 def subtract_prefixes(large_prefix: Union[ipaddress.IPv4Network, ipaddress.IPv6Network], smaller_prefixes: List[Union[ipaddress.IPv4Network, ipaddress.IPv6Network]]) -> List[Union[ipaddress.IPv4Network, ipaddress.IPv6Network]]:
     """
@@ -174,9 +135,9 @@ def process_prefix(prefix: str, asn_dict: Dict, ip_version: str) -> None:
         if asn_list:
             asn = asn_list[0]
             if asn in asn_dict:
-                announced_prefixes = [ipaddress.ip_network(ap) for ap in asn_dict[asn]['announced_prefixes'][f'{ip_version}_prefixes']]
+                announced_prefixes = [ipaddress.ip_network(ap) for ap in asn_dict[asn]['announced_prefixes'][f'{ip_version}']]
                 non_overlapping_subnets = subtract_prefixes(subnet, announced_prefixes)
-                asn_dict[asn]['not_announced_prefixes'][f'{ip_version}_prefixes'].extend([str(p) for p in non_overlapping_subnets])
+                asn_dict[asn]['not_announced_prefixes'][f'{ip_version}'].extend([str(p) for p in non_overlapping_subnets])
 
 def update_not_announced_prefixes(asn_dict: Dict, ip_set: set, ip_version: str, thread_count: int) -> None:
     """
@@ -216,8 +177,8 @@ def process_asn(asn: str) -> Tuple[str, Dict, set, set]:
         'name': as_name,
         'upstream_bgp_asn': upstream,
         'downstream_bgp_asn': downstream,
-        'announced_prefixes': {'ipv4_prefixes': ipv4_prefixes, 'ipv6_prefixes': ipv6_prefixes},
-        'not_announced_prefixes': {'ipv4_prefixes': [], 'ipv6_prefixes': []}
+        'announced_prefixes': {'ipv4': ipv4_prefixes, 'ipv6': ipv6_prefixes},
+        'not_announced_prefixes': {'ipv4': [], 'ipv6': []}
     }
 
     return asn, asn_data, set(ipv4_prefixes), set(ipv6_prefixes)
